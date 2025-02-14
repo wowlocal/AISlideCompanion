@@ -2,8 +2,13 @@ import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
 import { insertPresentationSchema } from "@shared/schema";
+import aiRoutes from "./ai-routes";
 
 export async function registerRoutes(app: Express) {
+  // AI routes
+  app.use('/api/ai', aiRoutes);
+
+  // Existing routes
   app.get("/api/presentations", async (_req, res) => {
     const presentations = await storage.getAllPresentations();
     res.json(presentations);

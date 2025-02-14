@@ -3,25 +3,43 @@ import { SlidePreview } from "@/components/slide-preview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { generateSlide } from "@/lib/slides";
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useLocation, useParams } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
-import type { Slide } from "@shared/schema";
+import type { Slide, Presentation } from "@shared/schema";
 
 export default function Presentation() {
   const [, setLocation] = useLocation();
+  const params = useParams();
   const [title, setTitle] = useState("Untitled Presentation");
   const [slides, setSlides] = useState<Slide[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
 
+  // Fetch existing presentation if we have an ID
+  const { data: existingPresentation } = useQuery<Presentation>({
+    queryKey: params.id ? [`/api/presentations/${params.id}`] : null,
+  });
+
+  // Update state when we load an existing presentation
+  useEffect(() => {
+    if (existingPresentation) {
+      setTitle(existingPresentation.title);
+      setSlides(existingPresentation.slides);
+    }
+  }, [existingPresentation]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/presentations", {
-        title,
-        slides,
-      });
+      const res = await apiRequest(
+        params.id ? "PATCH" : "POST",
+        params.id ? `/api/presentations/${params.id}` : "/api/presentations",
+        {
+          title,
+          slides,
+        }
+      );
       return res.json();
     },
     onSuccess: () => {
@@ -31,7 +49,8 @@ export default function Presentation() {
   });
 
   const handleTranscript = (transcript: string) => {
-    const newSlide = generateSlide(transcript);
+    // Pass all existing slides when generating a new slide
+    const newSlide = generateSlide(transcript, slides);
     setSlides((prev) => [...prev, newSlide]);
     setCurrentSlide(slides.length);
   };

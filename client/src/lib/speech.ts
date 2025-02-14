@@ -1,3 +1,5 @@
+import type { Slide } from "@shared/schema";
+
 type SpeechCallback = (transcript: string) => void;
 type ErrorCallback = (error: string) => void;
 
@@ -8,6 +10,9 @@ export class SpeechRecognition {
   private onErrorCallback: ErrorCallback | null = null;
   private retryCount: number = 0;
   private maxRetries: number = 3;
+  private interimTranscript: string = '';
+  private finalTranscript: string = '';
+  private lastProcessedIndex: number = 0;
   private restartTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -21,21 +26,38 @@ export class SpeechRecognition {
     // Configure recognition
     this.recognition.continuous = true;
     this.recognition.interimResults = true;
+    this.recognition.maxAlternatives = 1;
     this.recognition.lang = 'en-US';
 
-    this.recognition.onresult = (event: any) => {
-      const lastResult = event.results[event.results.length - 1];
-      const transcript = lastResult[0].transcript;
+    this.recognition.onstart = () => {
+      console.log('Speech recognition service has started');
+    };
 
-      if (lastResult.isFinal && this.onTranscriptCallback) {
-        this.onTranscriptCallback(transcript);
+    this.recognition.onresult = (event: any) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      // Process only new results
+      for (let i = this.lastProcessedIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+          this.lastProcessedIndex = i + 1;
+        } else {
+          interimTranscript += result[0].transcript;
+        }
+      }
+
+      // Update transcripts
+      if (finalTranscript && this.onTranscriptCallback) {
+        this.onTranscriptCallback(finalTranscript.trim());
 
         // Clear any existing timeout
         if (this.restartTimeout) {
           clearTimeout(this.restartTimeout);
         }
 
-        // Set a new timeout to restart recording after a pause
+        // Set a longer timeout for restart (3 seconds of silence)
         this.restartTimeout = setTimeout(() => {
           if (this.isListening) {
             try {
@@ -44,12 +66,12 @@ export class SpeechRecognition {
                 if (this.isListening) {
                   this.recognition.start();
                 }
-              }, 100);
+              }, 500);
             } catch (e) {
-              // Ignore errors during restart
+              console.error('Error during recognition restart:', e);
             }
           }
-        }, 1000);
+        }, 3000);
       }
     };
 
@@ -60,14 +82,14 @@ export class SpeechRecognition {
         this.retryCount++;
         console.log(`Retrying... Attempt ${this.retryCount} of ${this.maxRetries}`);
 
-        // Wait a bit before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait longer between retries
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         if (this.isListening) {
           try {
             this.recognition.start();
           } catch (e) {
-            // Ignore errors during retry
+            console.error('Error during retry:', e);
           }
         }
         return;
@@ -76,9 +98,13 @@ export class SpeechRecognition {
       if (this.onErrorCallback) {
         let errorMessage = event.error;
         if (event.error === 'network') {
-          errorMessage = 'Network connection issue. Please check your internet connection.';
+          errorMessage = 'Network connection issue. Please check your internet connection and ensure you are using a supported browser like Chrome or Edge.';
         } else if (event.error === 'not-allowed') {
-          errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+          errorMessage = 'Microphone access denied. Please allow microphone access in your browser settings and try again.';
+        } else if (event.error === 'no-speech') {
+          errorMessage = 'No speech was detected. Please try speaking again.';
+        } else if (event.error === 'audio-capture') {
+          errorMessage = 'No microphone was found. Please ensure your microphone is properly connected.';
         }
         this.onErrorCallback(errorMessage);
       }
@@ -87,12 +113,11 @@ export class SpeechRecognition {
     this.recognition.onend = () => {
       // Only auto-restart if we're still supposed to be listening and don't have a pending restart
       if (this.isListening && !this.restartTimeout) {
-        // Reset retry count on successful completion
         this.retryCount = 0;
         try {
           this.recognition.start();
         } catch (e) {
-          // Ignore errors during restart
+          console.error('Error during recognition restart:', e);
         }
       }
     };
@@ -119,7 +144,7 @@ export class SpeechRecognition {
     const hasPermission = await this.requestMicrophonePermission();
     if (!hasPermission) {
       if (onError) {
-        onError("Microphone permission denied. Please allow microphone access and try again.");
+        onError("Microphone access denied. Please allow microphone access in your browser settings and try again.");
       }
       return;
     }
@@ -128,6 +153,9 @@ export class SpeechRecognition {
     this.onErrorCallback = onError;
     this.isListening = true;
     this.retryCount = 0;
+    this.lastProcessedIndex = 0;
+    this.interimTranscript = '';
+    this.finalTranscript = '';
 
     try {
       this.recognition.start();
@@ -154,9 +182,13 @@ export class SpeechRecognition {
     } catch (error) {
       console.error("Failed to stop speech recognition:", error);
     }
+
     this.onTranscriptCallback = null;
     this.onErrorCallback = null;
     this.retryCount = 0;
+    this.lastProcessedIndex = 0;
+    this.interimTranscript = '';
+    this.finalTranscript = '';
   }
 
   isRecording() {

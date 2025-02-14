@@ -35,7 +35,8 @@ export function VoiceControls({ onTranscript }: VoiceControlsProps) {
         setIsRecording(true);
         toast({
           title: "Recording Started",
-          description: "Start speaking to create slides. Make sure you're in a quiet environment.",
+          description: "Start speaking to create slides. Make sure you're in a quiet environment and using a supported browser (Chrome/Edge).",
+          duration: 5000,
         });
       } catch (error) {
         handleError("Speech recognition not supported in this browser. Please try using Chrome or Edge.");

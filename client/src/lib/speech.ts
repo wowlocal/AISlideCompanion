@@ -8,6 +8,7 @@ export class SpeechRecognition {
   private onErrorCallback: ErrorCallback | null = null;
   private retryCount: number = 0;
   private maxRetries: number = 3;
+  private restartTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     if (!this.isBrowserSupported()) {
@@ -28,6 +29,27 @@ export class SpeechRecognition {
 
       if (lastResult.isFinal && this.onTranscriptCallback) {
         this.onTranscriptCallback(transcript);
+
+        // Clear any existing timeout
+        if (this.restartTimeout) {
+          clearTimeout(this.restartTimeout);
+        }
+
+        // Set a new timeout to restart recording after a pause
+        this.restartTimeout = setTimeout(() => {
+          if (this.isListening) {
+            try {
+              this.recognition.stop();
+              setTimeout(() => {
+                if (this.isListening) {
+                  this.recognition.start();
+                }
+              }, 100);
+            } catch (e) {
+              // Ignore errors during restart
+            }
+          }
+        }, 1000);
       }
     };
 
@@ -63,10 +85,10 @@ export class SpeechRecognition {
     };
 
     this.recognition.onend = () => {
-      if (this.isListening) {
+      // Only auto-restart if we're still supposed to be listening and don't have a pending restart
+      if (this.isListening && !this.restartTimeout) {
         // Reset retry count on successful completion
         this.retryCount = 0;
-        // Restart if we're still supposed to be listening
         try {
           this.recognition.start();
         } catch (e) {
@@ -122,6 +144,11 @@ export class SpeechRecognition {
     if (!this.isListening) return;
 
     this.isListening = false;
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+
     try {
       this.recognition.stop();
     } catch (error) {

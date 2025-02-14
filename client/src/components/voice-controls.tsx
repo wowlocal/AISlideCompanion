@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from "lucide-react";
 import { speechRecognition } from "@/lib/speech";
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 interface VoiceControlsProps {
   onTranscript: (transcript: string) => void;
@@ -9,14 +10,33 @@ interface VoiceControlsProps {
 
 export function VoiceControls({ onTranscript }: VoiceControlsProps) {
   const [isRecording, setIsRecording] = useState(false);
+  const { toast } = useToast();
+
+  const handleError = (error: string) => {
+    toast({
+      variant: "destructive",
+      title: "Speech Recognition Error",
+      description: `Failed to record speech: ${error}. Please try again.`,
+    });
+    setIsRecording(false);
+  };
 
   const toggleRecording = () => {
     if (isRecording) {
       speechRecognition.stop();
+      setIsRecording(false);
     } else {
-      speechRecognition.start(onTranscript);
+      try {
+        speechRecognition.start(onTranscript, handleError);
+        setIsRecording(true);
+        toast({
+          title: "Recording Started",
+          description: "Start speaking to create slides",
+        });
+      } catch (error) {
+        handleError("Speech recognition not supported in this browser");
+      }
     }
-    setIsRecording(!isRecording);
   };
 
   return (

@@ -6,6 +6,8 @@ export class SpeechRecognition {
   private isListening: boolean = false;
   private onTranscriptCallback: SpeechCallback | null = null;
   private onErrorCallback: ErrorCallback | null = null;
+  private retryCount: number = 0;
+  private maxRetries: number = 3;
 
   constructor() {
     if (!this.isBrowserSupported()) {
@@ -29,17 +31,47 @@ export class SpeechRecognition {
       }
     };
 
-    this.recognition.onerror = (event: any) => {
+    this.recognition.onerror = async (event: any) => {
       console.error("Speech recognition error:", event.error);
+
+      if (event.error === 'network' && this.retryCount < this.maxRetries) {
+        this.retryCount++;
+        console.log(`Retrying... Attempt ${this.retryCount} of ${this.maxRetries}`);
+
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        if (this.isListening) {
+          try {
+            this.recognition.start();
+          } catch (e) {
+            // Ignore errors during retry
+          }
+        }
+        return;
+      }
+
       if (this.onErrorCallback) {
-        this.onErrorCallback(event.error);
+        let errorMessage = event.error;
+        if (event.error === 'network') {
+          errorMessage = 'Network connection issue. Please check your internet connection.';
+        } else if (event.error === 'not-allowed') {
+          errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+        }
+        this.onErrorCallback(errorMessage);
       }
     };
 
     this.recognition.onend = () => {
       if (this.isListening) {
+        // Reset retry count on successful completion
+        this.retryCount = 0;
         // Restart if we're still supposed to be listening
-        this.recognition.start();
+        try {
+          this.recognition.start();
+        } catch (e) {
+          // Ignore errors during restart
+        }
       }
     };
   }
@@ -48,20 +80,41 @@ export class SpeechRecognition {
     return !!(window.webkitSpeechRecognition || (window as any).SpeechRecognition);
   }
 
-  start(onTranscript: SpeechCallback, onError?: ErrorCallback) {
+  async requestMicrophonePermission(): Promise<boolean> {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async start(onTranscript: SpeechCallback, onError?: ErrorCallback) {
     if (this.isListening) return;
+
+    // Check microphone permission first
+    const hasPermission = await this.requestMicrophonePermission();
+    if (!hasPermission) {
+      if (onError) {
+        onError("Microphone permission denied. Please allow microphone access and try again.");
+      }
+      return;
+    }
 
     this.onTranscriptCallback = onTranscript;
     this.onErrorCallback = onError;
     this.isListening = true;
+    this.retryCount = 0;
 
     try {
       this.recognition.start();
     } catch (error) {
       console.error("Failed to start speech recognition:", error);
       if (onError) {
-        onError("Failed to start speech recognition");
+        onError("Failed to start speech recognition. Please refresh the page and try again.");
       }
+      this.isListening = false;
     }
   }
 
@@ -76,6 +129,7 @@ export class SpeechRecognition {
     }
     this.onTranscriptCallback = null;
     this.onErrorCallback = null;
+    this.retryCount = 0;
   }
 
   isRecording() {

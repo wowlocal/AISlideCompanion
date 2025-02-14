@@ -16,25 +16,29 @@ export function VoiceControls({ onTranscript }: VoiceControlsProps) {
     toast({
       variant: "destructive",
       title: "Speech Recognition Error",
-      description: `Failed to record speech: ${error}. Please try again.`,
+      description: error,
     });
     setIsRecording(false);
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isRecording) {
       speechRecognition.stop();
       setIsRecording(false);
+      toast({
+        title: "Recording Stopped",
+        description: "Voice recording has been stopped",
+      });
     } else {
       try {
-        speechRecognition.start(onTranscript, handleError);
+        await speechRecognition.start(onTranscript, handleError);
         setIsRecording(true);
         toast({
           title: "Recording Started",
-          description: "Start speaking to create slides",
+          description: "Start speaking to create slides. Make sure you're in a quiet environment.",
         });
       } catch (error) {
-        handleError("Speech recognition not supported in this browser");
+        handleError("Speech recognition not supported in this browser. Please try using Chrome or Edge.");
       }
     }
   };
